@@ -66,14 +66,14 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // Manejo automático de la conexión con Shizuku
+        // Manejo automático de extracción e inicio del Daemon con Shizuku
         if (ShizukuManager.estaDisponible()) {
             if (!ShizukuManager.tienePermisos()) {
                 ShizukuManager.solicitarPermiso();
                 Toast.makeText(this, "Acepta el permiso de Shizuku en la pantalla", Toast.LENGTH_SHORT).show();
                 return;
             } else {
-                // Iniciar el Daemon de pantalla vía Shizuku/ADB
+                // Copia el .jar de assets y lo ejecuta vía Shizuku/ADB
                 ShizukuManager.iniciarDaemonAuto(this);
             }
         } else {
