@@ -88,9 +88,9 @@ public class WebServer extends NanoHTTPD {
                 frame = ultimoFramePantalla;
             }
             if (frame != null && frame.length > 0) {
-                return newFixedLengthResponse(Response.Status.OK, "image/png", new ByteArrayInputStream(frame), frame.length);
+                return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(frame), frame.length);
             }
-            return newFixedLengthResponse(Response.Status.NO_CONTENT, "image/png", "");
+            return newFixedLengthResponse(Response.Status.NO_CONTENT, "image/jpeg", "");
         }
 
         if ("/camera_frame.jpg".equals(uri)) {
@@ -107,13 +107,13 @@ public class WebServer extends NanoHTTPD {
         String html = "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
-                + "<title>Panel de Control</title>"
+                + "<title>Panel de Monitoreo Ultra-FPS</title>"
                 + "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
                 + "<style>"
                 + "body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; }"
                 + "h1 { color: #00E676; margin-bottom: 20px; }"
                 + ".container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }"
-                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; max-width: 450px; width: 100%; }"
+                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; max-width: 500px; width: 100%; }"
                 + "img { width: 100%; height: auto; border-radius: 6px; background: #000; min-height: 250px; object-fit: contain; }"
                 + "button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: white; }"
                 + ".btn-on { background-color: #00E676; color: #000; }"
@@ -126,8 +126,8 @@ public class WebServer extends NanoHTTPD {
                 + "<div class='container'>"
                 
                 + "<div class='card'>"
-                + "<h3>Transmisión de Pantalla (ADB Daemon)</h3>"
-                + "<img src='/frame.png' id='screenImg' alt='Esperando Daemon ADB...'>"
+                + "<h3>Transmisión de Pantalla (High FPS)</h3>"
+                + "<img src='/frame.jpg' id='screenImg' alt='Esperando Daemon ADB...'>"
                 + "</div>"
                 
                 + "<div class='card'>"
@@ -141,11 +141,39 @@ public class WebServer extends NanoHTTPD {
                 + "</div>"
 
                 + "</div>"
+
                 + "<script>"
-                + "  setInterval(function() {"
-                + "     document.getElementById('screenImg').src = '/frame.png?' + new Date().getTime();"
-                + "     document.getElementById('cameraImg').src = '/camera_frame.jpg?' + new Date().getTime();"
-                + "  }, 120);"
+                + "  var screenImg = document.getElementById('screenImg');"
+                + "  var cameraImg = document.getElementById('cameraImg');"
+
+                // Bucle asíncrono ultra fluido para la pantalla
+                + "  function streamScreen() {"
+                + "    var img = new Image();"
+                + "    img.onload = function() {"
+                + "      screenImg.src = this.src;"
+                + "      setTimeout(streamScreen, 15);"
+                + "    };"
+                + "    img.onerror = function() {"
+                + "      setTimeout(streamScreen, 100);"
+                + "    };"
+                + "    img.src = '/frame.jpg?' + new Date().getTime();"
+                + "  }"
+
+                // Bucle de refresco para la cámara
+                + "  function streamCamera() {"
+                + "    var img = new Image();"
+                + "    img.onload = function() {"
+                + "      cameraImg.src = this.src;"
+                + "      setTimeout(streamCamera, 100);"
+                + "    };"
+                + "    img.onerror = function() {"
+                + "      setTimeout(streamCamera, 200);"
+                + "    };"
+                + "    img.src = '/camera_frame.jpg?' + new Date().getTime();"
+                + "  }"
+
+                + "  streamScreen();"
+                + "  streamCamera();"
                 + "</script>"
                 + "</body>"
                 + "</html>";
