@@ -1,11 +1,9 @@
 package com.example.detectcamera;
 
 import android.Manifest;
-import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.media.projection.MediaProjectionManager;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -20,15 +18,18 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import rikka.shizuku.Shizuku;
+
 public class MainActivity extends AppCompatActivity {
 
     private static final int REQUEST_CODE_PERMISSIONS = 100;
-    private static final int REQUEST_CODE_SCREEN_CAPTURE = 1001;
 
     private EditText etUsername;
     private EditText etPassword;
     private TextView tvIpAddress;
     private Button btnStartServer;
+
+    private final Shizuku.OnRequestPermissionResultListener shizukuListener = this::onRequestPermissionResultShizuku;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,6 +43,15 @@ public class MainActivity extends AppCompatActivity {
 
         tvIpAddress.setText("IP: http://" + obtenerIpLocal() + ":8080");
         btnStartServer.setOnClickListener(v -> gestionarPermisosYArrancar());
+
+        // Registrar listener para escuchar la respuesta de autorización de Shizuku
+        Shizuku.addRequestPermissionResultListener(shizukuListener);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        Shizuku.removeRequestPermissionResultListener(shizukuListener);
     }
 
     private String obtenerIpLocal() {
@@ -53,8 +63,34 @@ public class MainActivity extends AppCompatActivity {
     private void gestionarPermisosYArrancar() {
         if (faltanPermisosRuntime()) {
             solicitarPermisosEstandar();
+            return;
+        }
+
+        // Manejo automático de la conexión con Shizuku
+        if (ShizukuManager.estaDisponible()) {
+            if (!ShizukuManager.tienePermisos()) {
+                ShizukuManager.solicitarPermiso();
+                Toast.makeText(this, "Acepta el permiso de Shizuku en la pantalla", Toast.LENGTH_SHORT).show();
+                return;
+            } else {
+                // Iniciar el Daemon de pantalla vía Shizuku/ADB
+                ShizukuManager.iniciarDaemonAuto(this);
+            }
         } else {
-            solicitarCapturaPantalla();
+            Toast.makeText(this, "Shizuku no está activo. Se intentará conectar al Daemon si ya fue ejecutado previamente.", Toast.LENGTH_LONG).show();
+        }
+
+        iniciarServidorService();
+    }
+
+    private void onRequestPermissionResultShizuku(int requestCode, int grantResult) {
+        if (requestCode == ShizukuManager.SHIZUKU_CODE) {
+            if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                ShizukuManager.iniciarDaemonAuto(this);
+                iniciarServidorService();
+            } else {
+                Toast.makeText(this, "Permiso de Shizuku denegado.", Toast.LENGTH_SHORT).show();
+            }
         }
     }
 
@@ -86,38 +122,20 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, "Debes conceder los permisos de cámara y audio.", Toast.LENGTH_LONG).show();
                 return;
             }
-            solicitarCapturaPantalla();
+            gestionarPermisosYArrancar();
         }
     }
 
-    private void solicitarCapturaPantalla() {
-        MediaProjectionManager projectionManager =
-                (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        if (projectionManager != null) {
-            startActivityForResult(
-                    projectionManager.createScreenCaptureIntent(),
-                    REQUEST_CODE_SCREEN_CAPTURE
-            );
+    private void iniciarServidorService() {
+        Intent serviceIntent = new Intent(this, CameraService.class);
+        serviceIntent.putExtra("USER_PARAM", etUsername.getText().toString());
+        serviceIntent.putExtra("PASS_PARAM", etPassword.getText().toString());
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
         }
-    }
-
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-
-        if (requestCode == REQUEST_CODE_SCREEN_CAPTURE && resultCode == Activity.RESULT_OK && data != null) {
-            Intent serviceIntent = new Intent(this, CameraService.class);
-            serviceIntent.putExtra("RESULT_CODE", resultCode);
-            serviceIntent.putExtra("DATA_INTENT", data);
-            serviceIntent.putExtra("USER_PARAM", etUsername.getText().toString());
-            serviceIntent.putExtra("PASS_PARAM", etPassword.getText().toString());
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(serviceIntent);
-            } else {
-                startService(serviceIntent);
-            }
-            Toast.makeText(this, "Servidor Iniciado", Toast.LENGTH_SHORT).show();
-        }
+        Toast.makeText(this, "Servidor Iniciado", Toast.LENGTH_SHORT).show();
     }
 }
