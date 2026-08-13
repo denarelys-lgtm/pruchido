@@ -46,7 +46,14 @@
             android:exported="false"
             android:foregroundServiceType="camera|microphone|mediaProjection" />
 
-
+        <!-- Provider requerido para la comunicación con Shizuku -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
     </application>
 </manifest>
