@@ -1,7 +1,6 @@
 package com.example.detectcamera;
 
 import android.Manifest;
-import android.app.Activity;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -9,6 +8,7 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.pm.ServiceInfo;
 import android.graphics.ImageFormat;
 import android.hardware.camera2.CameraCaptureSession;
 import android.hardware.camera2.CameraDevice;
@@ -88,7 +88,14 @@ public class CameraService extends Service {
                 .setOngoing(true)
                 .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        // Manejo de tipos de servicio para Android 10+ (Q/R/U)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA | ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
 
         String user = intent != null ? intent.getStringExtra("USER_PARAM") : "";
         String pass = intent != null ? intent.getStringExtra("PASS_PARAM") : "";
@@ -250,6 +257,7 @@ public class CameraService extends Service {
         }
 
         if (webServer != null) {
+            webServer.detenerAudio();
             webServer.stop();
             webServer = null;
         }
