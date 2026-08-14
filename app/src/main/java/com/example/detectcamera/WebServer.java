@@ -2,13 +2,23 @@ package com.example.detectcamera;
 
 import android.util.Base64;
 import fi.iki.elonen.NanoHTTPD;
+
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class WebServer extends NanoHTTPD {
 
-    private byte[] ultimoFramePantalla = null;
-    private byte[] ultimoFrameCamara = null;
+    // Almacenamiento atómico de los últimos frames
+    private final AtomicReference<byte[]> ultimoFramePantalla = new AtomicReference<>();
+    private final AtomicReference<byte[]> ultimoFrameCamara = new AtomicReference<>();
+
+    // Listas de streams MJPEG activos para notificar nuevos frames
+    private final CopyOnWriteArrayList<MJPEGInputStream> streamsPantalla = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<MJPEGInputStream> streamsCamara = new CopyOnWriteArrayList<>();
+
     private String usuarioValido = "";
     private String passwordValida = "";
     private CameraService cameraService;
@@ -27,12 +37,32 @@ public class WebServer extends NanoHTTPD {
         this.passwordValida = pass != null ? pass.trim() : "";
     }
 
-    public synchronized void actualizarFramePantalla(byte[] frame) {
-        this.ultimoFramePantalla = frame;
+    /**
+     * Actualiza el frame de pantalla y notifica a todos los streams de pantalla.
+     */
+    public void actualizarFramePantalla(byte[] frame) {
+        if (frame != null) {
+            ultimoFramePantalla.set(frame);
+            for (MJPEGInputStream stream : streamsPantalla) {
+                stream.addFrame(frame);
+            }
+        } else {
+            ultimoFramePantalla.set(null);
+        }
     }
 
-    public synchronized void actualizarFrameCamara(byte[] frame) {
-        this.ultimoFrameCamara = frame;
+    /**
+     * Actualiza el frame de cámara y notifica a todos los streams de cámara.
+     */
+    public void actualizarFrameCamara(byte[] frame) {
+        if (frame != null) {
+            ultimoFrameCamara.set(frame);
+            for (MJPEGInputStream stream : streamsCamara) {
+                stream.addFrame(frame);
+            }
+        } else {
+            ultimoFrameCamara.set(null);
+        }
     }
 
     public void detenerAudio() {
@@ -64,8 +94,8 @@ public class WebServer extends NanoHTTPD {
     public Response serve(IHTTPSession session) {
         if (!estaAutenticado(session)) {
             Response response = newFixedLengthResponse(
-                    Response.Status.UNAUTHORIZED, 
-                    "text/plain", 
+                    Response.Status.UNAUTHORIZED,
+                    "text/plain",
                     "Acceso Denegado."
             );
             response.addHeader("WWW-Authenticate", "Basic realm=\"Acceso Restringido\"");
@@ -74,7 +104,15 @@ public class WebServer extends NanoHTTPD {
 
         String uri = session.getUri();
 
-        // Endpoint de Audio
+        // --- Streams MJPEG (alta fluidez) ---
+        if ("/stream/screen".equals(uri)) {
+            return createMJPEGResponse(ultimoFramePantalla, streamsPantalla);
+        }
+        if ("/stream/camera".equals(uri)) {
+            return createMJPEGResponse(ultimoFrameCamara, streamsCamara);
+        }
+
+        // --- Endpoint de Audio ---
         if ("/audio.wav".equals(uri)) {
             InputStream audioStream = audioStreamManager.crearAudioStreamCliente();
             if (audioStream != null) {
@@ -83,7 +121,7 @@ public class WebServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error iniciando audio");
         }
 
-        // Endpoint de Control de Cámara
+        // --- Endpoint de Control de Cámara ---
         if ("/api/camera".equals(uri)) {
             String action = session.getParms().get("action");
             if (cameraService != null) {
@@ -98,31 +136,26 @@ public class WebServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"ok\"}");
         }
 
-        // Endpoint de Frames de Pantalla
-        if ("/frame.png".equals(uri) || "/frame.jpg".equals(uri)) {
-            byte[] frame;
-            synchronized (this) {
-                frame = ultimoFramePantalla;
-            }
+        // --- Endpoints de frame único (compatibilidad) ---
+        if ("/frame.jpg".equals(uri)) {
+            byte[] frame = ultimoFramePantalla.get();
             if (frame != null && frame.length > 0) {
-                return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(frame), frame.length);
+                return newFixedLengthResponse(Response.Status.OK, "image/jpeg",
+                        new ByteArrayInputStream(frame), frame.length);
             }
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No frame available");
         }
 
-        // Endpoint de Frames de Cámara
         if ("/camera_frame.jpg".equals(uri)) {
-            byte[] frame;
-            synchronized (this) {
-                frame = ultimoFrameCamara;
-            }
+            byte[] frame = ultimoFrameCamara.get();
             if (frame != null && frame.length > 0) {
-                return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(frame), frame.length);
+                return newFixedLengthResponse(Response.Status.OK, "image/jpeg",
+                        new ByteArrayInputStream(frame), frame.length);
             }
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No frame available");
         }
 
-        // Panel de Control Web Interactiva
+        // --- Panel de Control Web (ahora con MJPEG) ---
         String html = "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
@@ -132,19 +165,14 @@ public class WebServer extends NanoHTTPD {
                 + "body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 15px; }"
                 + "h1 { color: #00E676; margin-bottom: 15px; font-size: 22px; }"
                 + ".container { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; }"
-                
                 + ".card { background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #333; "
                 + "        resize: both; overflow: auto; min-width: 280px; min-height: 250px; width: 440px; height: 350px; "
                 + "        display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }"
-                
                 + ".card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }"
                 + ".card-header h3 { margin: 0; font-size: 15px; color: #00E676; }"
-                
                 + ".video-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; "
                 + "                 overflow: hidden; border-radius: 6px; position: relative; width: 100%; height: 100%; }"
-                
-                + "img.stream { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s ease; }"
-                
+                + "img.stream { max-width: 100%; max-height: 100%; object-fit: contain; }"
                 + "button { padding: 8px 12px; margin: 2px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: white; font-size: 13px; }"
                 + ".btn-on { background-color: #00E676; color: #000; }"
                 + ".btn-off { background-color: #FF1744; }"
@@ -155,7 +183,6 @@ public class WebServer extends NanoHTTPD {
                 + "</style>"
                 + "</head>"
                 + "<body>"
-                
                 + "<h1>Panel de Control de Monitoreo</h1>"
                 + "<div class='container'>"
 
@@ -169,7 +196,7 @@ public class WebServer extends NanoHTTPD {
                 + "    </div>"
                 + "  </div>"
                 + "  <div class='video-wrapper'>"
-                + "    <img id='screenImg' class='stream' alt='Cargando Transmisión...'>"
+                + "    <img id='screenImg' class='stream' src='/stream/screen' alt='Cargando...'>"
                 + "  </div>"
                 + "</div>"
 
@@ -183,7 +210,7 @@ public class WebServer extends NanoHTTPD {
                 + "    </div>"
                 + "  </div>"
                 + "  <div class='video-wrapper'>"
-                + "    <img id='cameraImg' class='stream' alt='Cámara Apagada'>"
+                + "    <img id='cameraImg' class='stream' src='/stream/camera' alt='Cámara Apagada'>"
                 + "  </div>"
                 + "  <div style='margin-top: 8px;'>"
                 + "    <button class='btn-on' onclick=\"fetch('/api/camera?action=on')\">Encender</button>"
@@ -243,44 +270,125 @@ public class WebServer extends NanoHTTPD {
                 + "    }"
                 + "  }"
 
-                // Función robusta para la transmisión fluida sin bloquear el navegador
-                + "  function iniciarStream(imgId, endpoint, intervaloMs) {"
-                + "    var targetImg = document.getElementById(imgId);"
-                + "    var cargando = false;"
-                
-                + "    function cargarSiguiente() {"
-                + "      if (cargando) return;"
-                + "      cargando = true;"
-                
-                + "      var timerSafety = setTimeout(function() {"
-                + "        cargando = false;"
-                + "        setTimeout(cargarSiguiente, 500);"
-                + "      }, 3000);"
-                
-                + "      var tempImg = new Image();"
-                + "      tempImg.onload = function() {"
-                + "        clearTimeout(timerSafety);"
-                + "        targetImg.src = tempImg.src;"
-                + "        cargando = false;"
-                + "        setTimeout(cargarSiguiente, intervaloMs);"
-                + "      };"
-                + "      tempImg.onerror = function() {"
-                + "        clearTimeout(timerSafety);"
-                + "        cargando = false;"
-                + "        setTimeout(cargarSiguiente, 500);"
-                + "      };"
-                + "      tempImg.src = endpoint + '?' + Date.now();"
-                + "    }"
-                + "    cargarSiguiente();"
-                + "  }"
-
-                // Iniciar transmisiones a un ritmo estable (100ms = 10 FPS)
-                + "  iniciarStream('screenImg', '/frame.jpg', 100);"
-                + "  iniciarStream('cameraImg', '/camera_frame.jpg', 100);"
+                // No se necesita polling: las imágenes MJPEG se actualizan solas
                 + "</script>"
                 + "</body>"
                 + "</html>";
 
         return newFixedLengthResponse(Response.Status.OK, "text/html", html);
+    }
+
+    /**
+     * Crea una respuesta MJPEG con un stream que bloquea hasta que haya nuevos frames.
+     */
+    private Response createMJPEGResponse(AtomicReference<byte[]> frameSource,
+                                         CopyOnWriteArrayList<MJPEGInputStream> streamList) {
+        MJPEGInputStream stream = new MJPEGInputStream();
+        streamList.add(stream);
+
+        // Enviar el frame actual si existe
+        byte[] current = frameSource.get();
+        if (current != null) {
+            stream.addFrame(current);
+        }
+
+        // Registrar un hilo para eliminar el stream cuando se cierre la conexión
+        stream.setOnCloseListener(() -> streamList.remove(stream));
+
+        Response response = newChunkedResponse(
+                Response.Status.OK,
+                "multipart/x-mixed-replace; boundary=frame",
+                stream
+        );
+        return response;
+    }
+
+    /**
+     * InputStream personalizado para MJPEG que bloquea cuando no hay datos.
+     */
+    private static class MJPEGInputStream extends InputStream {
+        private static final byte[] BOUNDARY = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ".getBytes();
+        private static final byte[] CRLF = "\r\n\r\n".getBytes();
+        private static final byte[] END = "\r\n".getBytes();
+
+        private final java.util.concurrent.BlockingQueue<byte[]> queue =
+                new java.util.concurrent.LinkedBlockingQueue<>();
+        private byte[] currentPacket = null;
+        private int currentPos = 0;
+        private volatile boolean closed = false;
+        private Runnable closeListener;
+
+        public void addFrame(byte[] jpeg) {
+            if (!closed && jpeg != null && jpeg.length > 0) {
+                // Construir el paquete multipart completo
+                byte[] header = buildHeader(jpeg.length);
+                byte[] packet = new byte[header.length + jpeg.length + END.length];
+                System.arraycopy(header, 0, packet, 0, header.length);
+                System.arraycopy(jpeg, 0, packet, header.length, jpeg.length);
+                System.arraycopy(END, 0, packet, header.length + jpeg.length, END.length);
+                queue.offer(packet);
+            }
+        }
+
+        public void setOnCloseListener(Runnable listener) {
+            this.closeListener = listener;
+        }
+
+        public void closeStream() {
+            closed = true;
+            queue.offer(new byte[0]); // Señal de fin
+            if (closeListener != null) closeListener.run();
+        }
+
+        private byte[] buildHeader(int contentLength) {
+            String headerStr = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " + contentLength + "\r\n\r\n";
+            return headerStr.getBytes();
+        }
+
+        @Override
+        public int read() throws IOException {
+            byte[] oneByte = new byte[1];
+            int n = read(oneByte, 0, 1);
+            return n == -1 ? -1 : oneByte[0] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (closed && currentPacket == null) return -1;
+
+            // Si no hay paquete actual, obtener uno nuevo (bloquea hasta 5s)
+            if (currentPacket == null || currentPos >= currentPacket.length) {
+                try {
+                    byte[] packet = queue.poll(5, java.util.concurrent.TimeUnit.SECONDS);
+                    if (packet == null) {
+                        // Timeout: enviar 0 bytes para mantener viva la conexión
+                        return 0;
+                    }
+                    if (packet.length == 0) { // Señal de cierre
+                        closed = true;
+                        return -1;
+                    }
+                    currentPacket = packet;
+                    currentPos = 0;
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    return -1;
+                }
+            }
+
+            int bytesToCopy = Math.min(len, currentPacket.length - currentPos);
+            System.arraycopy(currentPacket, currentPos, b, off, bytesToCopy);
+            currentPos += bytesToCopy;
+            if (currentPos >= currentPacket.length) {
+                currentPacket = null; // Preparar para el siguiente
+            }
+            return bytesToCopy;
+        }
+
+        @Override
+        public void close() throws IOException {
+            closeStream();
+            super.close();
+        }
     }
 }
