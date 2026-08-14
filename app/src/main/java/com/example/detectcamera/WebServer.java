@@ -74,7 +74,7 @@ public class WebServer extends NanoHTTPD {
 
         String uri = session.getUri();
 
-        // Endpoint de Audio en vivo
+        // Endpoint de Audio
         if ("/audio.wav".equals(uri)) {
             InputStream audioStream = audioStreamManager.crearAudioStreamCliente();
             if (audioStream != null) {
@@ -83,6 +83,7 @@ public class WebServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error iniciando audio");
         }
 
+        // Endpoint de Control de Cámara
         if ("/api/camera".equals(uri)) {
             String action = session.getParms().get("action");
             if (cameraService != null) {
@@ -97,6 +98,7 @@ public class WebServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"ok\"}");
         }
 
+        // Endpoint de Frames de Pantalla
         if ("/frame.png".equals(uri) || "/frame.jpg".equals(uri)) {
             byte[] frame;
             synchronized (this) {
@@ -108,6 +110,7 @@ public class WebServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.NO_CONTENT, "image/jpeg", "");
         }
 
+        // Endpoint de Frames de Cámara
         if ("/camera_frame.jpg".equals(uri)) {
             byte[] frame;
             synchronized (this) {
@@ -119,6 +122,7 @@ public class WebServer extends NanoHTTPD {
             return newFixedLengthResponse(Response.Status.NO_CONTENT, "image/jpeg", "");
         }
 
+        // Panel de Control Web Interactiva (HTML5 / CSS3 / JS)
         String html = "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
@@ -128,49 +132,105 @@ public class WebServer extends NanoHTTPD {
                 + "body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; }"
                 + "h1 { color: #00E676; margin-bottom: 20px; }"
                 + ".container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }"
-                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; max-width: 450px; width: 100%; }"
-                + "img { width: 100%; height: auto; border-radius: 6px; background: #000; min-height: 250px; object-fit: contain; }"
-                + "button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: white; }"
+                
+                + "/* Tarjetas Redimensionables */"
+                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; "
+                + "        resize: both; overflow: auto; min-width: 320px; min-height: 280px; width: 480px; height: 380px; "
+                + "        display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }"
+                
+                + ".card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }"
+                + ".card-header h3 { margin: 0; font-size: 16px; color: #00E676; }"
+                
+                + ".video-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; "
+                + "                 overflow: hidden; border-radius: 6px; position: relative; width: 100%; height: 100%; }"
+                
+                + "/* Imagen de transmisión con efecto de rotación fluido */"
+                + "img.stream { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s ease; }"
+                
+                + "button { padding: 8px 12px; margin: 2px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: white; font-size: 13px; }"
                 + ".btn-on { background-color: #00E676; color: #000; }"
                 + ".btn-off { background-color: #FF1744; }"
                 + ".btn-toggle { background-color: #29B6F6; color: #000; }"
-                + ".btn-audio { background-color: #AA00FF; color: #fff; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }"
+                + ".btn-tool { background-color: #424242; color: #fff; }"
+                + ".btn-tool:hover { background-color: #616161; }"
+                + ".btn-audio { background-color: #AA00FF; color: #fff; width: 100%; padding: 12px; font-size: 15px; margin-top: 10px; }"
                 + "</style>"
                 + "</head>"
                 + "<body>"
+                
                 + "<h1>Panel de Control de Monitoreo</h1>"
                 + "<div class='container'>"
-                
-                + "<div class='card'>"
-                + "<h3>Transmisión de Pantalla (High FPS)</h3>"
-                + "<img src='/frame.jpg' id='screenImg' alt='Esperando Daemon ADB...'>"
+
+                // --- VENTANA 1: PANTALLA ---
+                + "<div class='card' id='cardScreen'>"
+                + "  <div class='card-header'>"
+                + "    <h3>Transmisión de Pantalla</h3>"
+                + "    <div>"
+                + "      <button class='btn-tool' onclick=\"rotarImagen('screenImg')\">🔄 90°</button>"
+                + "      <button class='btn-tool' onclick=\"pantallaCompleta('cardScreen')\">⛶ Max</button>"
+                + "    </div>"
+                + "  </div>"
+                + "  <div class='video-wrapper'>"
+                + "    <img src='/frame.jpg' id='screenImg' class='stream' alt='Esperando Transmisión...'>"
+                + "  </div>"
                 + "</div>"
 
-                + "<div class='card'>"
-                + "<h3>Cámara en Vivo</h3>"
-                + "<img src='/camera_frame.jpg' id='cameraImg' alt='Cámara Apagada'>"
-                + "<div style='margin-top: 15px;'>"
-                + "<button class='btn-on' onclick=\"fetch('/api/camera?action=on')\">Encender Cámara</button>"
-                + "<button class='btn-off' onclick=\"fetch('/api/camera?action=off')\">Apagar Cámara</button>"
-                + "<button class='btn-toggle' onclick=\"fetch('/api/camera?action=toggle')\">Cambiar Cámara</button>"
-                + "</div>"
+                // --- VENTANA 2: CÁMARA ---
+                + "<div class='card' id='cardCamera'>"
+                + "  <div class='card-header'>"
+                + "    <h3>Cámara en Vivo</h3>"
+                + "    <div>"
+                + "      <button class='btn-tool' onclick=\"rotarImagen('cameraImg')\">🔄 90°</button>"
+                + "      <button class='btn-tool' onclick=\"pantallaCompleta('cardCamera')\">⛶ Max</button>"
+                + "    </div>"
+                + "  </div>"
+                + "  <div class='video-wrapper'>"
+                + "    <img src='/camera_frame.jpg' id='cameraImg' class='stream' alt='Cámara Apagada'>"
+                + "  </div>"
+                + "  <div style='margin-top: 10px;'>"
+                + "    <button class='btn-on' onclick=\"fetch('/api/camera?action=on')\">Encender</button>"
+                + "    <button class='btn-off' onclick=\"fetch('/api/camera?action=off')\">Apagar</button>"
+                + "    <button class='btn-toggle' onclick=\"fetch('/api/camera?action=toggle')\">Cambiar Cámara</button>"
+                + "  </div>"
                 + "</div>"
 
-                + "<div class='card'>"
-                + "<h3>Audio del Micrófono</h3>"
-                + "<p>Escucha el entorno del dispositivo en tiempo real.</p>"
-                + "<audio id='audioPlayer'></audio>"
-                + "<button id='audioBtn' class='btn-audio' onclick='toggleAudio()'>▶ Escuchar Micrófono</button>"
+                // --- VENTANA 3: AUDIO ---
+                + "<div class='card' style='height: auto; min-height: 200px;'>"
+                + "  <div class='card-header'>"
+                + "    <h3>Audio del Micrófono</h3>"
+                + "  </div>"
+                + "  <p style='font-size: 14px; color: #ccc;'>Escucha el entorno del dispositivo en tiempo real.</p>"
+                + "  <audio id='audioPlayer'></audio>"
+                + "  <button id='audioBtn' class='btn-audio' onclick='toggleAudio()'>▶ Escuchar Micrófono</button>"
                 + "</div>"
 
-                + "</div>"
+                + "</div>" // Fin .container
 
+                // --- SCRIPTS INTERACTIVOS ---
                 + "<script>"
                 + "  var screenImg = document.getElementById('screenImg');"
                 + "  var cameraImg = document.getElementById('cameraImg');"
                 + "  var audioPlayer = document.getElementById('audioPlayer');"
                 + "  var audioBtn = document.getElementById('audioBtn');"
                 + "  var listening = false;"
+
+                + "  // Grados de rotación almacenados para cada stream"
+                + "  var rotaciones = { 'screenImg': 0, 'cameraImg': 90 };"
+
+                + "  function rotarImagen(id) {"
+                + "    rotaciones[id] = (rotaciones[id] + 90) % 360;"
+                + "    document.getElementById(id).style.transform = 'rotate(' + rotaciones[id] + 'deg)';"
+                + "  }"
+
+                + "  function pantallaCompleta(cardId) {"
+                + "    var elem = document.getElementById(cardId);"
+                + "    if (!document.fullscreenElement) {"
+                + "      if (elem.requestFullscreen) { elem.requestFullscreen(); }"
+                + "      else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); }"
+                + "    } else {"
+                + "      if (document.exitFullscreen) { document.exitFullscreen(); }"
+                + "    }"
+                + "  }"
 
                 + "  function toggleAudio() {"
                 + "    if(!listening) {"
