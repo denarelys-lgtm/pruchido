@@ -54,12 +54,13 @@ public class ScreenSocketClient {
 
                     while (running && !socket.isClosed()) {
                         int length;
+                        byte[] rawBytes; // <-- Declaración fuera del try para que sea visible
                         try {
                             length = dis.readInt();
                             if (length <= 0 || length > 30_000_000) {
                                 continue; // Tamaño inválido, omitir
                             }
-                            byte[] rawBytes = new byte[length];
+                            rawBytes = new byte[length];
                             dis.readFully(rawBytes);
                         } catch (IOException e) {
                             // Error de red -> salir para reconectar
