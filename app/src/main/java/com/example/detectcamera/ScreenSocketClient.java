@@ -7,6 +7,8 @@ import android.util.Log;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.net.Socket;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 
 public class ScreenSocketClient {
 
@@ -42,40 +44,42 @@ public class ScreenSocketClient {
                      DataInputStream dis =
                              new DataInputStream(socket.getInputStream())) {
 
-                    Log.i(TAG,
-                            "Conectado exitosamente al Daemon ADB en localhost:9090");
+                    Log.i(
+                            TAG,
+                            "Conectado exitosamente al Daemon ADB en localhost:9090"
+                    );
 
                     while (running && !socket.isClosed()) {
 
                         /*
                          * ScreenDaemon envía:
                          *
-                         * [4 bytes - tamaño PNG]
-                         * [PNG]
+                         * [4 bytes - tamaño del frame]
+                         * [datos del frame]
                          */
 
                         int length = dis.readInt();
 
                         if (length <= 0 || length > MAX_FRAME_SIZE) {
 
-                            Log.w(TAG,
-                                    "Tamaño de frame inválido: " + length);
+                            Log.w(
+                                    TAG,
+                                    "Tamaño de frame inválido: " + length
+                            );
 
                             break;
                         }
 
-                        byte[] pngBytes = new byte[length];
+                        byte[] frameBytes = new byte[length];
 
-                        dis.readFully(pngBytes);
+                        dis.readFully(frameBytes);
 
                         /*
-                         * El daemon YA está enviando PNG.
-                         * No debemos interpretar estos bytes
-                         * como un buffer RAW.
+                         * Intentamos procesar automáticamente
+                         * el formato recibido.
                          */
-
                         byte[] jpegFrame =
-                                procesarFrame(pngBytes);
+                                procesarFrame(frameBytes);
 
                         if (jpegFrame != null && webServer != null) {
 
@@ -87,10 +91,11 @@ public class ScreenSocketClient {
 
                     if (running) {
 
-                        Log.w(TAG,
+                        Log.w(
+                                TAG,
                                 "Conexión con ScreenDaemon perdida. " +
-                                "Reintentando en 2 segundos...",
-                                e);
+                                "Reintentando en 2 segundos..."
+                        );
                     }
 
                     try {
@@ -128,109 +133,328 @@ public class ScreenSocketClient {
     }
 
     /**
-     * Recibe directamente el PNG generado por:
+     * Procesa automáticamente el frame recibido.
      *
-     * screencap -p
+     * Soporta:
      *
-     * Lo convierte a Bitmap, lo escala y finalmente
-     * lo convierte a JPEG para enviarlo al WebServer.
+     * 1. PNG
+     * 2. JPEG
+     * 3. RAW de screencap
      */
-    private byte[] procesarFrame(byte[] pngBytes) {
+    private byte[] procesarFrame(byte[] frame) {
 
-        if (pngBytes == null || pngBytes.length == 0) {
+        if (frame == null || frame.length == 0) {
+            return null;
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * PRIMERA OPCIÓN:
+         * Intentar decodificar directamente como imagen.
+         *
+         * Esto permite trabajar con PNG/JPEG.
+         * ---------------------------------------------------------
+         */
+
+        Bitmap bitmap = BitmapFactory.decodeByteArray(
+                frame,
+                0,
+                frame.length
+        );
+
+        if (bitmap != null) {
+
+            Log.d(
+                    TAG,
+                    "Frame detectado como imagen comprimida: "
+                            + bitmap.getWidth()
+                            + "x"
+                            + bitmap.getHeight()
+            );
+
+            return convertirBitmapAJpeg(bitmap);
+        }
+
+        /*
+         * ---------------------------------------------------------
+         * SEGUNDA OPCIÓN:
+         * Intentar interpretar el frame como RAW.
+         *
+         * Conservamos aquí la lógica de tu versión que
+         * anteriormente mostraba la pantalla.
+         * ---------------------------------------------------------
+         */
+
+        return procesarRawFrameAJpeg(frame);
+    }
+
+    /**
+     * Procesa el formato RAW utilizado por screencap.
+     */
+    private byte[] procesarRawFrameAJpeg(byte[] rawFrame) {
+
+        if (rawFrame == null || rawFrame.length < 12) {
             return null;
         }
 
         Bitmap bitmap = null;
-        Bitmap scaled = null;
 
         try {
 
+            ByteBuffer buffer =
+                    ByteBuffer.wrap(rawFrame);
+
+            buffer.order(
+                    ByteOrder.LITTLE_ENDIAN
+            );
+
+            int width = buffer.getInt();
+            int height = buffer.getInt();
+            int format = buffer.getInt();
+
+            Log.d(
+                    TAG,
+                    "RAW detectado: "
+                            + width
+                            + "x"
+                            + height
+                            + " format="
+                            + format
+            );
+
             /*
-             * Decodificación directa del PNG.
+             * Validaciones para evitar que bytes de un PNG,
+             * JPEG o un frame corrupto sean interpretados
+             * como dimensiones absurdas.
              */
-            bitmap = BitmapFactory.decodeByteArray(
-                    pngBytes,
-                    0,
-                    pngBytes.length
-            );
 
-            if (bitmap == null) {
+            if (width <= 0
+                    || height <= 0
+                    || width > 4000
+                    || height > 4000) {
 
-                Log.w(TAG,
-                        "BitmapFactory no pudo decodificar el PNG");
-
-                return null;
-            }
-
-            /*
-             * Mantener la relación de aspecto.
-             *
-             * Limitamos el ancho a 720 px.
-             * Si la imagen ya es menor, no la ampliamos.
-             */
-            int targetWidth = Math.min(
-                    720,
-                    bitmap.getWidth()
-            );
-
-            int targetHeight = Math.round(
-                    ((float) targetWidth / bitmap.getWidth())
-                            * bitmap.getHeight()
-            );
-
-            if (targetWidth != bitmap.getWidth()) {
-
-                scaled = Bitmap.createScaledBitmap(
-                        bitmap,
-                        targetWidth,
-                        targetHeight,
-                        true
+                Log.w(
+                        TAG,
+                        "Dimensiones RAW inválidas: "
+                                + width
+                                + "x"
+                                + height
                 );
 
-            } else {
-
-                scaled = bitmap;
-                bitmap = null;
+                return null;
             }
 
             /*
-             * Convertir a JPEG para reducir el tamaño
-             * de los frames que manejará el WebServer.
+             * Cada píxel ocupa 4 bytes en ARGB_8888.
              */
-            ByteArrayOutputStream baos =
-                    new ByteArrayOutputStream();
+            long pixelDataSizeLong =
+                    (long) width
+                            * (long) height
+                            * 4L;
 
-            boolean compressed = scaled.compress(
-                    Bitmap.CompressFormat.JPEG,
-                    60,
-                    baos
-            );
+            if (pixelDataSizeLong <= 0
+                    || pixelDataSizeLong > rawFrame.length) {
 
-            if (!compressed) {
-
-                Log.w(TAG,
-                        "No se pudo comprimir el frame a JPEG");
+                Log.w(
+                        TAG,
+                        "Tamaño de datos RAW inválido: "
+                                + pixelDataSizeLong
+                );
 
                 return null;
             }
 
-            return baos.toByteArray();
+            int pixelDataSize =
+                    (int) pixelDataSizeLong;
+
+            /*
+             * Conservamos la misma estrategia del código
+             * original que ya funcionaba en tu dispositivo.
+             */
+            int headerOffset =
+                    rawFrame.length - pixelDataSize;
+
+            if (headerOffset < 12
+                    || headerOffset >= rawFrame.length) {
+
+                Log.w(
+                        TAG,
+                        "Offset RAW inválido: "
+                                + headerOffset
+                );
+
+                return null;
+            }
+
+            bitmap = Bitmap.createBitmap(
+                    width,
+                    height,
+                    Bitmap.Config.ARGB_8888
+            );
+
+            buffer.position(headerOffset);
+
+            /*
+             * Copiar los píxeles RAW directamente al Bitmap.
+             */
+            buffer.limit(
+                    Math.min(
+                            rawFrame.length,
+                            headerOffset + pixelDataSize
+                    )
+            );
+
+            bitmap.copyPixelsFromBuffer(buffer);
+
+            Log.d(
+                    TAG,
+                    "Frame RAW procesado correctamente"
+            );
+
+            return convertirBitmapAJpeg(bitmap);
 
         } catch (Exception e) {
 
-            Log.e(TAG,
-                    "Error procesando frame de pantalla",
-                    e);
+            Log.e(
+                    TAG,
+                    "Error procesando frame RAW",
+                    e
+            );
 
             return null;
 
         } finally {
 
-            if (bitmap != null && !bitmap.isRecycled()) {
+            if (bitmap != null
+                    && !bitmap.isRecycled()) {
+
                 bitmap.recycle();
             }
+        }
+    }
 
+    /**
+     * Convierte un Bitmap a JPEG optimizado para el panel web.
+     *
+     * Mantiene la relación de aspecto y limita el ancho
+     * a 720 píxeles.
+     */
+    private byte[] convertirBitmapAJpeg(Bitmap bitmap) {
+
+        if (bitmap == null) {
+            return null;
+        }
+
+        Bitmap scaled = null;
+
+        try {
+
+            int originalWidth =
+                    bitmap.getWidth();
+
+            int originalHeight =
+                    bitmap.getHeight();
+
+            if (originalWidth <= 0
+                    || originalHeight <= 0) {
+
+                return null;
+            }
+
+            /*
+             * Limitar a 720 px de ancho.
+             *
+             * No ampliamos imágenes que ya sean menores.
+             */
+            int targetWidth =
+                    Math.min(
+                            720,
+                            originalWidth
+                    );
+
+            int targetHeight =
+                    Math.round(
+                            ((float) targetWidth
+                                    / originalWidth)
+                                    * originalHeight
+                    );
+
+            if (targetWidth != originalWidth) {
+
+                scaled =
+                        Bitmap.createScaledBitmap(
+                                bitmap,
+                                targetWidth,
+                                targetHeight,
+                                true
+                        );
+
+            } else {
+
+                scaled = bitmap;
+            }
+
+            /*
+             * JPEG calidad 60.
+             *
+             * Es suficientemente ligero para transmisión
+             * continua y mantiene una calidad razonable.
+             */
+            ByteArrayOutputStream baos =
+                    new ByteArrayOutputStream();
+
+            boolean success =
+                    scaled.compress(
+                            Bitmap.CompressFormat.JPEG,
+                            60,
+                            baos
+                    );
+
+            if (!success) {
+
+                Log.w(
+                        TAG,
+                        "No se pudo comprimir el Bitmap a JPEG"
+                );
+
+                return null;
+            }
+
+            byte[] jpeg =
+                    baos.toByteArray();
+
+            Log.d(
+                    TAG,
+                    "JPEG generado: "
+                            + targetWidth
+                            + "x"
+                            + targetHeight
+                            + " / "
+                            + jpeg.length
+                            + " bytes"
+            );
+
+            return jpeg;
+
+        } catch (Exception e) {
+
+            Log.e(
+                    TAG,
+                    "Error convirtiendo Bitmap a JPEG",
+                    e
+            );
+
+            return null;
+
+        } finally {
+
+            /*
+             * Si scaled es un Bitmap diferente al original,
+             * liberarlo aquí.
+             *
+             * Si es el mismo, no lo reciclamos porque puede
+             * pertenecer al Bitmap recibido por el método.
+             */
             if (scaled != null
                     && scaled != bitmap
                     && !scaled.isRecycled()) {
