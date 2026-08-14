@@ -1,35 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+    package="com.example.detectcamera">
 
-    <!-- Permisos de Red y Conectividad -->
+    <!-- Permisos de Cámara y Notificaciones -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-
-    <!-- Permisos para mantener el servicio activo en segundo plano / pantalla apagada -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
-    <!-- Permisos de Cámara y Audio -->
-    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Permisos de Micrófono y Servicio Foreground -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
-    <!-- Permisos de Servicios Foreground -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <application
         android:allowBackup="true"
-        android:icon="@android:drawable/ic_menu_camera"
-        android:label="DetectCamera"
-        android:roundIcon="@android:drawable/ic_menu_camera"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
-        tools:ignore="MissingApplicationIcon">
+        android:theme="@style/Theme.DetectCamera">
 
         <activity
             android:name=".MainActivity"
@@ -40,20 +32,13 @@
             </intent-filter>
         </activity>
 
+        <!-- Servicio registrado especificando Cámara y Micrófono -->
         <service
             android:name=".CameraService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="camera|microphone|mediaProjection" />
-
-        <!-- Provider requerido para la comunicación con Shizuku -->
-        <provider
-            android:name="rikka.shizuku.ShizukuProvider"
-            android:authorities="${applicationId}.shizuku"
-            android:multiprocess="false"
-            android:enabled="true"
-            android:exported="true"
-            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
+            android:foregroundServiceType="camera|microphone" />
 
     </application>
+
 </manifest>
