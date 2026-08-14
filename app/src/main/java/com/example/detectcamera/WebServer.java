@@ -107,7 +107,7 @@ public class WebServer extends NanoHTTPD {
             if (frame != null && frame.length > 0) {
                 return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(frame), frame.length);
             }
-            return newFixedLengthResponse(Response.Status.NO_CONTENT, "image/jpeg", "");
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No frame available");
         }
 
         // Endpoint de Frames de Cámara
@@ -119,32 +119,30 @@ public class WebServer extends NanoHTTPD {
             if (frame != null && frame.length > 0) {
                 return newFixedLengthResponse(Response.Status.OK, "image/jpeg", new ByteArrayInputStream(frame), frame.length);
             }
-            return newFixedLengthResponse(Response.Status.NO_CONTENT, "image/jpeg", "");
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "No frame available");
         }
 
-        // Panel de Control Web Interactiva (HTML5 / CSS3 / JS)
+        // Panel de Control Web Interactiva
         String html = "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
                 + "<title>Panel de Monitoreo</title>"
                 + "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
                 + "<style>"
-                + "body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; }"
-                + "h1 { color: #00E676; margin-bottom: 20px; }"
-                + ".container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }"
+                + "body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 15px; }"
+                + "h1 { color: #00E676; margin-bottom: 15px; font-size: 22px; }"
+                + ".container { display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; }"
                 
-                + "/* Tarjetas Redimensionables */"
-                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; "
-                + "        resize: both; overflow: auto; min-width: 320px; min-height: 280px; width: 480px; height: 380px; "
+                + ".card { background: #1e1e1e; padding: 12px; border-radius: 10px; border: 1px solid #333; "
+                + "        resize: both; overflow: auto; min-width: 280px; min-height: 250px; width: 440px; height: 350px; "
                 + "        display: flex; flex-direction: column; justify-content: space-between; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }"
                 
-                + ".card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }"
-                + ".card-header h3 { margin: 0; font-size: 16px; color: #00E676; }"
+                + ".card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }"
+                + ".card-header h3 { margin: 0; font-size: 15px; color: #00E676; }"
                 
                 + ".video-wrapper { flex: 1; display: flex; align-items: center; justify-content: center; background: #000; "
                 + "                 overflow: hidden; border-radius: 6px; position: relative; width: 100%; height: 100%; }"
                 
-                + "/* Imagen de transmisión con efecto de rotación fluido */"
                 + "img.stream { max-width: 100%; max-height: 100%; object-fit: contain; transition: transform 0.2s ease; }"
                 
                 + "button { padding: 8px 12px; margin: 2px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: white; font-size: 13px; }"
@@ -153,7 +151,7 @@ public class WebServer extends NanoHTTPD {
                 + ".btn-toggle { background-color: #29B6F6; color: #000; }"
                 + ".btn-tool { background-color: #424242; color: #fff; }"
                 + ".btn-tool:hover { background-color: #616161; }"
-                + ".btn-audio { background-color: #AA00FF; color: #fff; width: 100%; padding: 12px; font-size: 15px; margin-top: 10px; }"
+                + ".btn-audio { background-color: #AA00FF; color: #fff; width: 100%; padding: 10px; font-size: 14px; margin-top: 10px; }"
                 + "</style>"
                 + "</head>"
                 + "<body>"
@@ -161,7 +159,7 @@ public class WebServer extends NanoHTTPD {
                 + "<h1>Panel de Control de Monitoreo</h1>"
                 + "<div class='container'>"
 
-                // --- VENTANA 1: PANTALLA ---
+                // VENTANA 1: PANTALLA
                 + "<div class='card' id='cardScreen'>"
                 + "  <div class='card-header'>"
                 + "    <h3>Transmisión de Pantalla</h3>"
@@ -171,11 +169,11 @@ public class WebServer extends NanoHTTPD {
                 + "    </div>"
                 + "  </div>"
                 + "  <div class='video-wrapper'>"
-                + "    <img src='/frame.jpg' id='screenImg' class='stream' alt='Esperando Transmisión...'>"
+                + "    <img id='screenImg' class='stream' alt='Cargando Transmisión...'>"
                 + "  </div>"
                 + "</div>"
 
-                // --- VENTANA 2: CÁMARA ---
+                // VENTANA 2: CÁMARA
                 + "<div class='card' id='cardCamera'>"
                 + "  <div class='card-header'>"
                 + "    <h3>Cámara en Vivo</h3>"
@@ -185,37 +183,33 @@ public class WebServer extends NanoHTTPD {
                 + "    </div>"
                 + "  </div>"
                 + "  <div class='video-wrapper'>"
-                + "    <img src='/camera_frame.jpg' id='cameraImg' class='stream' alt='Cámara Apagada'>"
+                + "    <img id='cameraImg' class='stream' alt='Cámara Apagada'>"
                 + "  </div>"
-                + "  <div style='margin-top: 10px;'>"
+                + "  <div style='margin-top: 8px;'>"
                 + "    <button class='btn-on' onclick=\"fetch('/api/camera?action=on')\">Encender</button>"
                 + "    <button class='btn-off' onclick=\"fetch('/api/camera?action=off')\">Apagar</button>"
                 + "    <button class='btn-toggle' onclick=\"fetch('/api/camera?action=toggle')\">Cambiar Cámara</button>"
                 + "  </div>"
                 + "</div>"
 
-                // --- VENTANA 3: AUDIO ---
-                + "<div class='card' style='height: auto; min-height: 200px;'>"
+                // VENTANA 3: AUDIO
+                + "<div class='card' style='height: auto; min-height: 180px;'>"
                 + "  <div class='card-header'>"
                 + "    <h3>Audio del Micrófono</h3>"
                 + "  </div>"
-                + "  <p style='font-size: 14px; color: #ccc;'>Escucha el entorno del dispositivo en tiempo real.</p>"
+                + "  <p style='font-size: 13px; color: #ccc; margin: 5px 0;'>Escucha el entorno en tiempo real.</p>"
                 + "  <audio id='audioPlayer'></audio>"
                 + "  <button id='audioBtn' class='btn-audio' onclick='toggleAudio()'>▶ Escuchar Micrófono</button>"
                 + "</div>"
 
-                + "</div>" // Fin .container
+                + "</div>" // Fin container
 
-                // --- SCRIPTS INTERACTIVOS ---
+                // JAVASCRIPT
                 + "<script>"
-                + "  var screenImg = document.getElementById('screenImg');"
-                + "  var cameraImg = document.getElementById('cameraImg');"
+                + "  var rotaciones = { 'screenImg': 0, 'cameraImg': 0 };"
                 + "  var audioPlayer = document.getElementById('audioPlayer');"
                 + "  var audioBtn = document.getElementById('audioBtn');"
                 + "  var listening = false;"
-
-                + "  // Grados de rotación almacenados para cada stream"
-                + "  var rotaciones = { 'screenImg': 0, 'cameraImg': 90 };"
 
                 + "  function rotarImagen(id) {"
                 + "    rotaciones[id] = (rotaciones[id] + 90) % 360;"
@@ -224,17 +218,18 @@ public class WebServer extends NanoHTTPD {
 
                 + "  function pantallaCompleta(cardId) {"
                 + "    var elem = document.getElementById(cardId);"
-                + "    if (!document.fullscreenElement) {"
+                + "    if (!document.fullscreenElement && !document.webkitFullscreenElement) {"
                 + "      if (elem.requestFullscreen) { elem.requestFullscreen(); }"
                 + "      else if (elem.webkitRequestFullscreen) { elem.webkitRequestFullscreen(); }"
                 + "    } else {"
                 + "      if (document.exitFullscreen) { document.exitFullscreen(); }"
+                + "      else if (document.webkitExitFullscreen) { document.webkitExitFullscreen(); }"
                 + "    }"
                 + "  }"
 
                 + "  function toggleAudio() {"
                 + "    if(!listening) {"
-                + "      audioPlayer.src = '/audio.wav?' + new Date().getTime();"
+                + "      audioPlayer.src = '/audio.wav?' + Date.now();"
                 + "      audioPlayer.play();"
                 + "      audioBtn.innerText = '⏹ Detener Audio';"
                 + "      audioBtn.style.backgroundColor = '#FF1744';"
@@ -248,32 +243,40 @@ public class WebServer extends NanoHTTPD {
                 + "    }"
                 + "  }"
 
-                + "  function streamScreen() {"
-                + "    var img = new Image();"
-                + "    img.onload = function() {"
-                + "      screenImg.src = this.src;"
-                + "      setTimeout(streamScreen, 15);"
-                + "    };"
-                + "    img.onerror = function() {"
-                + "      setTimeout(streamScreen, 100);"
-                + "    };"
-                + "    img.src = '/frame.jpg?' + new Date().getTime();"
+                // Función robusta para la transmisión fluida sin bloquear el navegador
+                + "  function iniciarStream(imgId, endpoint, intervaloMs) {"
+                + "    var targetImg = document.getElementById(imgId);"
+                + "    var cargando = false;"
+                
+                + "    function cargarSiguiente() {"
+                + "      if (cargando) return;"
+                + "      cargando = true;"
+                
+                + "      var timerSafety = setTimeout(function() {"
+                + "        cargando = false;"
+                + "        setTimeout(cargarSiguiente, 500);"
+                + "      }, 3000);"
+                
+                + "      var tempImg = new Image();"
+                + "      tempImg.onload = function() {"
+                + "        clearTimeout(timerSafety);"
+                + "        targetImg.src = tempImg.src;"
+                + "        cargando = false;"
+                + "        setTimeout(cargarSiguiente, intervaloMs);"
+                + "      };"
+                + "      tempImg.onerror = function() {"
+                + "        clearTimeout(timerSafety);"
+                + "        cargando = false;"
+                + "        setTimeout(cargarSiguiente, 500);"
+                + "      };"
+                + "      tempImg.src = endpoint + '?' + Date.now();"
+                + "    }"
+                + "    cargarSiguiente();"
                 + "  }"
 
-                + "  function streamCamera() {"
-                + "    var img = new Image();"
-                + "    img.onload = function() {"
-                + "      cameraImg.src = this.src;"
-                + "      setTimeout(streamCamera, 100);"
-                + "    };"
-                + "    img.onerror = function() {"
-                + "      setTimeout(streamCamera, 200);"
-                + "    };"
-                + "    img.src = '/camera_frame.jpg?' + new Date().getTime();"
-                + "  }"
-
-                + "  streamScreen();"
-                + "  streamCamera();"
+                // Iniciar transmisiones a un ritmo estable (100ms = 10 FPS)
+                + "  iniciarStream('screenImg', '/frame.jpg', 100);"
+                + "  iniciarStream('cameraImg', '/camera_frame.jpg', 100);"
                 + "</script>"
                 + "</body>"
                 + "</html>";
