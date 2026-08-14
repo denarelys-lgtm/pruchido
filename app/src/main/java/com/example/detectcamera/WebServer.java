@@ -3,6 +3,7 @@ package com.example.detectcamera;
 import android.util.Base64;
 import fi.iki.elonen.NanoHTTPD;
 import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 
 public class WebServer extends NanoHTTPD {
 
@@ -11,6 +12,7 @@ public class WebServer extends NanoHTTPD {
     private String usuarioValido = "";
     private String passwordValida = "";
     private CameraService cameraService;
+    private final AudioStreamManager audioStreamManager = new AudioStreamManager();
 
     public WebServer(int port) {
         super(port);
@@ -31,6 +33,10 @@ public class WebServer extends NanoHTTPD {
 
     public synchronized void actualizarFrameCamara(byte[] frame) {
         this.ultimoFrameCamara = frame;
+    }
+
+    public void detenerAudio() {
+        audioStreamManager.detenerCaptura();
     }
 
     private boolean estaAutenticado(IHTTPSession session) {
@@ -67,6 +73,15 @@ public class WebServer extends NanoHTTPD {
         }
 
         String uri = session.getUri();
+
+        // Endpoint de Audio en vivo
+        if ("/audio.wav".equals(uri)) {
+            InputStream audioStream = audioStreamManager.crearAudioStreamCliente();
+            if (audioStream != null) {
+                return newChunkedResponse(Response.Status.OK, "audio/wav", audioStream);
+            }
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error iniciando audio");
+        }
 
         if ("/api/camera".equals(uri)) {
             String action = session.getParms().get("action");
@@ -107,18 +122,19 @@ public class WebServer extends NanoHTTPD {
         String html = "<!DOCTYPE html>"
                 + "<html>"
                 + "<head>"
-                + "<title>Panel de Monitoreo Ultra-FPS</title>"
+                + "<title>Panel de Monitoreo</title>"
                 + "<meta name='viewport' content='width=device-width, initial-scale=1.0'>"
                 + "<style>"
                 + "body { background-color: #121212; color: #ffffff; font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; }"
                 + "h1 { color: #00E676; margin-bottom: 20px; }"
                 + ".container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; }"
-                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; max-width: 500px; width: 100%; }"
+                + ".card { background: #1e1e1e; padding: 15px; border-radius: 10px; border: 1px solid #333; max-width: 450px; width: 100%; }"
                 + "img { width: 100%; height: auto; border-radius: 6px; background: #000; min-height: 250px; object-fit: contain; }"
                 + "button { padding: 10px 15px; margin: 5px; border: none; border-radius: 5px; font-weight: bold; cursor: pointer; color: white; }"
                 + ".btn-on { background-color: #00E676; color: #000; }"
                 + ".btn-off { background-color: #FF1744; }"
                 + ".btn-toggle { background-color: #29B6F6; color: #000; }"
+                + ".btn-audio { background-color: #AA00FF; color: #fff; width: 100%; padding: 12px; font-size: 16px; margin-top: 10px; }"
                 + "</style>"
                 + "</head>"
                 + "<body>"
@@ -129,7 +145,7 @@ public class WebServer extends NanoHTTPD {
                 + "<h3>Transmisión de Pantalla (High FPS)</h3>"
                 + "<img src='/frame.jpg' id='screenImg' alt='Esperando Daemon ADB...'>"
                 + "</div>"
-                
+
                 + "<div class='card'>"
                 + "<h3>Cámara en Vivo</h3>"
                 + "<img src='/camera_frame.jpg' id='cameraImg' alt='Cámara Apagada'>"
@@ -140,13 +156,38 @@ public class WebServer extends NanoHTTPD {
                 + "</div>"
                 + "</div>"
 
+                + "<div class='card'>"
+                + "<h3>Audio del Micrófono</h3>"
+                + "<p>Escucha el entorno del dispositivo en tiempo real.</p>"
+                + "<audio id='audioPlayer'></audio>"
+                + "<button id='audioBtn' class='btn-audio' onclick='toggleAudio()'>▶ Escuchar Micrófono</button>"
+                + "</div>"
+
                 + "</div>"
 
                 + "<script>"
                 + "  var screenImg = document.getElementById('screenImg');"
                 + "  var cameraImg = document.getElementById('cameraImg');"
+                + "  var audioPlayer = document.getElementById('audioPlayer');"
+                + "  var audioBtn = document.getElementById('audioBtn');"
+                + "  var listening = false;"
 
-                // Bucle asíncrono ultra fluido para la pantalla
+                + "  function toggleAudio() {"
+                + "    if(!listening) {"
+                + "      audioPlayer.src = '/audio.wav?' + new Date().getTime();"
+                + "      audioPlayer.play();"
+                + "      audioBtn.innerText = '⏹ Detener Audio';"
+                + "      audioBtn.style.backgroundColor = '#FF1744';"
+                + "      listening = true;"
+                + "    } else {"
+                + "      audioPlayer.pause();"
+                + "      audioPlayer.src = '';"
+                + "      audioBtn.innerText = '▶ Escuchar Micrófono';"
+                + "      audioBtn.style.backgroundColor = '#AA00FF';"
+                + "      listening = false;"
+                + "    }"
+                + "  }"
+
                 + "  function streamScreen() {"
                 + "    var img = new Image();"
                 + "    img.onload = function() {"
@@ -159,7 +200,6 @@ public class WebServer extends NanoHTTPD {
                 + "    img.src = '/frame.jpg?' + new Date().getTime();"
                 + "  }"
 
-                // Bucle de refresco para la cámara
                 + "  function streamCamera() {"
                 + "    var img = new Image();"
                 + "    img.onload = function() {"
